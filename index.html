@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galeria Justificada Zero Crops</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: #050505; 
+            font-family: sans-serif;
+            scrollbar-width: none; 
+            -ms-overflow-style: none;
+            scroll-behavior: auto; 
+        }
+        body::-webkit-scrollbar { display: none; }
+
+        /* Container principal */
+        #gallery {
+            display: flex;
+            flex-direction: column; /* As peças são empilhadas em linhas */
+            gap: 15px;
+            padding: 15px;
+            box-sizing: border-box;
+            width: 100vw;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+        }
+
+        #gallery.visible {
+            opacity: 1;
+        }
+
+        /* A Linha Inteligente - A altura será definida matematicamente no JS */
+        .row {
+            display: flex;
+            flex-direction: row;
+            gap: 15px;
+            width: 100%;
+        }
+
+        /* O Quadro da Arte */
+        .item {
+            position: relative;
+            background-color: #fff;
+            border-radius: 6px;
+            overflow: hidden;
+            
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes fadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 
+           O 'cover' aqui é um mero guarda-costas.
+           Como o JS define o Flex-basis do .item com a proporção EXATA da imagem, 
+           NENHUM pixel será cortado.
+        */
+        .item img, .item video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            transition: transform 3s ease, filter 0.5s ease;
+        }
+
+        #loader {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #555;
+            letter-spacing: 3px;
+            font-size: 13px;
+            text-transform: uppercase;
+            transition: opacity 1s;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loader">Calculando Geometria Perfeita...</div>
+    <div id="gallery"></div>
+
+    <script>
+        const assets = [
+            '1.png', '10.gif', '11.gif', '12.gif', '13.png', '14.png', '15.png',
+            '16.gif', '17.gif', '18.gif', '19.gif', '2.gif', '20.gif', '21.gif',
+            '22.gif', '23.gif', '24.gif', '25.mp4', '26.mp4', '27.mp4', '28.jpg',
+            '29.mp4', '3.gif', '30.mp4','31.mp4','32.mp4', '36.mp4','37.mp4','38.mp4','4.gif', '5.gif', '6.gif', '7.gif',
+            '8.gif', '9.gif', '33.jpg', '34.jpg', '35.jpg'
+        ];
+
+        let globalAssets = [];
+        let historyQueue = [];
+        const minDistance = 24; 
+
+        // Mede proporção em background (Aspect Ratio)
+        function measureAsset(src) {
+            return new Promise((resolve) => {
+                const ext = src.split('.').pop().toLowerCase();
+                if (ext === 'mp4') {
+                    const vid = document.createElement('video');
+                    vid.src = src;
+                    vid.onloadedmetadata = () => resolve({ src, type: 'video', ratio: vid.videoWidth / vid.videoHeight, duration: vid.duration });
+                    vid.onerror = () => resolve({ src, type: 'video', ratio: 1, duration: 10 });
+                } else {
+                    const img = new Image();
+                    img.src = src;
+                    img.onload = () => resolve({ src, type: 'img', ratio: img.width / img.height });
+                    img.onerror = () => resolve({ src, type: 'img', ratio: 1 });
+                }
+            });
+        }
+
+        // Sistema de Geladeira (Impede repetição próxima)
+        function getNextAsset() {
+            let available = globalAssets.filter(a => !historyQueue.includes(a.src));
+            if (available.length === 0) available = globalAssets;
+
+            let chosen = available[Math.floor(Math.random() * available.length)];
+            historyQueue.push(chosen.src);
+            if (historyQueue.length > minDistance) historyQueue.shift();
+
+            return chosen;
+        }
+
+        async function init() {
+            window.scrollTo(0, 0); 
+            globalAssets = await Promise.all(assets.map(measureAsset));
+            document.getElementById('loader').style.opacity = '0'; 
+            
+            // Cria as primeiras 8 linhas para preencher a tela
+            for(let i=0; i<8; i++) addRow();
+            
+            document.getElementById('gallery').classList.add('visible');
+
+            requestAnimationFrame(autoScroll);
+            startGarbageCollector();
+        }
+
+        // --- ALGORITMO JUSTIFICADO (Flickr / Google Fotos) ---
+        function addRow() {
+            const rowAssets = [];
+            let sumRatio = 0;
+            
+            const targetHeight = window.innerHeight * 0.35; 
+
+            // Vai puxando imagens até fechar a largura da tela
+            while (true) {
+                const asset = getNextAsset();
+                rowAssets.push(asset);
+                sumRatio += asset.ratio;
+
+                const totalGap = (rowAssets.length - 1) * 15;
+                const availableWidth = window.innerWidth - 30 - totalGap;
+                
+                const calculatedHeight = availableWidth / sumRatio;
+
+                if (calculatedHeight <= targetHeight || rowAssets.length >= 4) {
+                    break;
+                }
+            }
+
+            const totalGap = (rowAssets.length - 1) * 15;
+            const availableWidth = window.innerWidth - 30 - totalGap;
+            let finalHeight = availableWidth / sumRatio;
+
+            let isCapped = false;
+            if (finalHeight > window.innerHeight * 0.85) {
+                finalHeight = window.innerHeight * 0.85;
+                isCapped = true;
+            }
+
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'row';
+            rowDiv.style.height = finalHeight + 'px'; 
+            
+            if (isCapped) {
+                rowDiv.style.justifyContent = 'center';
+            }
+
+            rowAssets.forEach((asset, index) => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'item';
+                itemDiv.style.animationDelay = `${index * 0.15}s`;
+                
+                if (isCapped) {
+                    itemDiv.style.width = (finalHeight * asset.ratio) + 'px';
+                    itemDiv.style.flex = 'none';
+                } else {
+                    itemDiv.style.flex = `${asset.ratio} 1 0`;
+                }
+
+                if (asset.type === 'video') {
+                    const vid = document.createElement('video');
+                    vid.src = asset.src;
+                    vid.autoplay = true; vid.muted = true; vid.loop = true; vid.playsInline = true;
+                    
+                    // --- INÍCIO DA REGRA DO 37.mp4 ---
+                    vid.addEventListener('loadedmetadata', () => {
+                        let durationLimit = vid.duration;
+                        
+                        // Se for o 37.mp4, restringe a duração máxima sorteada para 154s (2m34s)
+                        if (asset.src === '37.mp4') {
+                            durationLimit = 154; 
+                        }
+                        
+                        vid.currentTime = Math.random() * durationLimit;
+                    });
+
+                    // Evento contínuo para observar o tempo se for o 37.mp4
+                    if (asset.src === '37.mp4') {
+                        vid.addEventListener('timeupdate', () => {
+                            if (vid.currentTime >= 154) {
+                                vid.currentTime = 0; // Se encostar nos 2m34s, volta para o início
+                            }
+                        });
+                    }
+                    // --- FIM DA REGRA DO 37.mp4 ---
+
+                    itemDiv.appendChild(vid);
+                } else {
+                    const img = document.createElement('img');
+                    img.src = asset.src;
+                    itemDiv.appendChild(img);
+                }
+                
+                rowDiv.appendChild(itemDiv);
+            });
+
+            document.getElementById('gallery').appendChild(rowDiv);
+        }
+
+        // MOTOR DE SCROLL INFINITO
+        let currentScroll = 0;
+        const scrollSpeed = 0.4; 
+
+        function autoScroll() {
+            if (Math.abs(currentScroll - window.scrollY) > 10) currentScroll = window.scrollY;
+            
+            currentScroll += scrollSpeed;
+            window.scrollTo(0, currentScroll);
+
+            const distanciaDoFim = document.body.scrollHeight - (window.scrollY + window.innerHeight);
+            if (distanciaDoFim < 2500) {
+                addRow(); addRow(); addRow();
+            }
+
+            requestAnimationFrame(autoScroll);
+        }
+
+        // LIXEIRA V2 (A mais leve de todas)
+        function startGarbageCollector() {
+            setInterval(() => {
+                const rows = document.querySelectorAll('.row:not(.cleared)');
+                rows.forEach(row => {
+                    const rect = row.getBoundingClientRect();
+                    
+                    if (rect.bottom < -2000) {
+                        const videos = row.querySelectorAll('video');
+                        videos.forEach(v => { v.removeAttribute('src'); v.load(); });
+                        
+                        row.innerHTML = '';
+                        row.classList.add('cleared');
+                        row.style.backgroundColor = 'transparent'; 
+                    }
+                });
+            }, 2000); 
+        }
+
+        init();
+    </script>
+</body>
+</html>
